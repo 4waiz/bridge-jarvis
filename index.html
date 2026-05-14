@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project J.A.R.V.I.S Interface</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="intro" class="intro-overlay" role="button" tabindex="0" aria-label="Tap to enter">
+        <div class="intro-grid"></div>
+        <div class="intro-core">
+            <div class="intro-ring intro-ring--outer"></div>
+            <div class="intro-ring intro-ring--mid"></div>
+            <div class="intro-ring intro-ring--inner"></div>
+            <div class="intro-arc intro-arc--top"></div>
+            <div class="intro-arc intro-arc--bottom"></div>
+            <div class="intro-tick intro-tick--n"></div>
+            <div class="intro-tick intro-tick--e"></div>
+            <div class="intro-tick intro-tick--s"></div>
+            <div class="intro-tick intro-tick--w"></div>
+            <div class="intro-disc">
+                <img src="logo_bridge_.svg" alt="BRIDGE" class="intro-logo">
+            </div>
+        </div>
+        <p class="intro-tagline">SYSTEMS ONLINE</p>
+        <p class="intro-skip">TAP TO ENTER</p>
+    </div>
+
+    <div id="loading" class="loading-overlay">
+        <div class="circle-loader"></div>
+        <h1 class="loading-title">INITIALIZING J.A.R.V.I.S.</h1>
+        <p class="loading-subtitle">Loading Neural Interface, Holographics, Vision, and Voice</p>
+    </div>
+
+    <div id="cyan-grid" class="cyan-grid" aria-hidden="true"></div>
+
+    <video id="input_video" autoplay playsinline muted></video>
+    <canvas id="output_canvas"></canvas>
+    <canvas id="hand_canvas"></canvas>
+    <canvas id="snapshot_canvas" width="640" height="360" hidden></canvas>
+
+    <div id="hud-layer">
+        <div class="scanline"></div>
+
+        <section class="hud-status">
+            <h2 class="hud-status__title">SYS.ONLINE</h2>
+            <div class="hud-status__clock" id="clock">00:00:00</div>
+        </section>
+
+        <img id="bridge-logo" class="bridge-logo" src="logo_bridge_.svg" alt="Bridge logo">
+
+        <section id="voice-panel" class="voice-panel hud-card hud-card--voice">
+            <h3>JARVIS COMMS</h3>
+            <button id="voice-toggle" class="voice-button" type="button">TALK TO JARVIS</button>
+            <div class="voice-status" id="voice-status">STANDBY</div>
+            <div class="voice-line">
+                <span>USER</span>
+                <p id="voice-transcript">Awaiting command.</p>
+            </div>
+            <div class="voice-line">
+                <span>JARVIS</span>
+                <p id="jarvis-response">Systems nominal, Sir.</p>
+            </div>
+        </section>
+
+        <section id="info-card" class="hud-card">
+            <h3>ARC REACTOR STATUS</h3>
+            <div class="card-content">
+                <div class="card-column">
+                    <div class="graph-container" id="reactor-graph"></div>
+                    <div class="status-label">OUTPUT</div>
+                    <div class="status-value" id="reactor-output">100%</div>
+                    <div class="status-label">TEMP</div>
+                    <div class="status-value" id="reactor-temp">3200 K</div>
+                </div>
+                <div class="card-column card-column--mini">
+                    <div class="status-label">CAPACITY</div>
+                    <div class="progress-bar-vertical">
+                        <div class="progress-bar-fill-vertical" id="reactor-capacity" style="height: 95%"></div>
+                    </div>
+                    <div class="status-value" id="reactor-capacity-val">95%</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="hud-note">
+            <h3 class="hud-note__title">HAND CONTROL</h3>
+            <p class="hud-note__text">
+                [1 HAND] PINCH TO ROTATE<br>
+                [2 HANDS] SPREAD TO SCALE<br>
+                [VOICE] PRESS TALK TO COMMAND
+            </p>
+        </section>
+
+        <div id="terminal-log" class="terminal-log"></div>
+
+        <div id="jarvis-orb" class="jarvis-orb" data-state="idle">
+            <div class="jarvis-orb__ring jarvis-orb__ring--outer"></div>
+            <div class="jarvis-orb__ring jarvis-orb__ring--mid"></div>
+            <div class="jarvis-orb__arc jarvis-orb__arc--a"></div>
+            <div class="jarvis-orb__arc jarvis-orb__arc--b"></div>
+            <div class="jarvis-orb__core">
+                <span class="jarvis-orb__text">JARVIS</span>
+            </div>
+        </div>
+
+        <div id="face-tracker-ui" class="face-tracker">
+            <div class="face-tracker__header">
+                <span class="face-tracker__title">TARGET ACQUIRED</span>
+                <span class="face-tracker__badge">ID: USER</span>
+            </div>
+            <div class="data-row">
+                <span>CPU LOAD</span>
+                <span id="cpu-val">42%</span>
+            </div>
+            <div class="bar-container">
+                <div class="bar-fill" id="cpu-bar" style="width: 42%"></div>
+            </div>
+            <div class="data-row">
+                <span>BIOMETRICS</span>
+                <span id="bio-val">88 BPM</span>
+            </div>
+            <div class="bar-container">
+                <div class="bar-fill" id="bio-bar" style="width: 88%"></div>
+            </div>
+            <div class="data-row data-row--muted">
+                <span>ALTITUDE</span>
+                <span>1204 FT</span>
+            </div>
+            <div class="data-row data-row--muted">
+                <span>VELOCITY</span>
+                <span>MACH 0.0</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
