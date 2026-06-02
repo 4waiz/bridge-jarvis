@@ -725,3 +725,40 @@ body {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.04); }
 }
+
+/* ---- QC inspection panel ---- */
+.qc-panel {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    min-width: 260px;
+    max-width: 320px;
+    z-index: 40;
+}
+.qc-panel--pass { box-shadow: 0 0 18px rgba(0, 255, 140, 0.35); }
+.qc-panel--fail { box-shadow: 0 0 18px rgba(255, 70, 70, 0.4); }
+.qc-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 2px;
+    font-family: 'Rajdhani', sans-serif;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.12);
+}
+.qc-row span:first-child { width: 16px; text-align: center; font-weight: 700; }
+.qc-row--ok   span:first-child { color: #00ff8c; }
+.qc-row--warn span:first-child { color: #ffb300; }
+.qc-row--bad  span:first-child { color: #ff4646; }
+.qc-verdict {
+    margin-top: 10px;
+    padding: 6px 8px;
+    text-align: center;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 1px;
+    border-radius: 4px;
+}
+.qc-verdict--pass { color: #001b10; background: #00ff8c; }
+.qc-verdict--fail { color: #2a0000; background: #ff4646; }

@@ -1,46 +1,54 @@
-# JARVIS HUD: OpenAI Voice + Hand Tracking Patch
+# JARVIS Quality Control Station
 
-This patch merges the visual HUD with live MediaPipe hand skeletons and a server-side OpenAI voice assistant.
+JARVIS voice HUD + Roboflow vision = an always-on car inspector for the QC station.
 
-## Install
+## How it works
+
+1. **Idle watch** — the browser polls `/api/qc-detect` ~2x/sec with the live Logitech
+   frame. As soon as a car is detected for ~1.8s, JARVIS greets the operator.
+2. **Auto inspection** — on arrival it calls `/api/qc-inspect`: the backend runs the
+   Roboflow detection model, builds a deterministic pass/fail **verdict** against a
+   checklist (`CHECKLIST` in `qc.js`), then has the LLM *phrase* it and speaks via TTS.
+3. **Spoken questions** — "are the tires ok?", "what's missing?", "re-inspect" are
+   answered from the SAME verdict, so JARVIS never contradicts the vision model.
+4. **Verdict UI** — a checklist panel (bottom-right) shows ✔ present / ? recheck / ✗ missing.
+
+### Key design rule
+**Roboflow decides facts; the LLM only chooses words.** Quality decisions are
+deterministic and auditable — the language model cannot declare a missing part "fine".
+
+## Setup
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env   # then fill in your keys
+npm start              # http://localhost:3000
 ```
 
-Edit `.env` and add your API key:
+`.env` needs your `OPENAI_API_KEY` and your Roboflow `ROBOFLOW_API_KEY` +
+`ROBOFLOW_MODEL_ID` (e.g. `my-car-qc/3`, from the Versions page in Roboflow).
 
-```bash
-OPENAI_API_KEY=sk-your-key-here
-```
+## Train the model (your ~1000 photos)
 
-## Run
+1. Roboflow → create an **Object Detection** project.
+2. Upload photos. **Shoot/augment from the mounted-camera angle** for production accuracy.
+3. Label one class per part — match the class names in `CHECKLIST` (qc.js) exactly:
+   `tire`, `battery`, `front_bumper`, `rear_bumper`, `headlight`, `side_mirror`, `hood`...
+4. **Add defective / incomplete cars** — a model trained only on perfect cars cannot
+   detect "missing". Include images with parts removed.
+5. Train → Deploy → copy the model id into `.env`.
+6. Phase 2 (condition: scratched/misaligned): add those as extra classes
+   (e.g. `tire_loose`, `scratch`) once presence detection is solid.
 
-```bash
-npm start
-```
+## Tuning
+- `QC_PRESENCE_THRESHOLD` (default 0.55) — confidence to count a part as present.
+- `QC_LOW_THRESHOLD` (0.35) — below presence but above this = "recheck", not "missing".
+- Greet timing: `SEEN_TO_GREET` / `GONE_TO_RESET` in `qc-client.js`.
 
-Open:
-
-```text
-http://localhost:3000
-```
-
-## What changed
-
-- Added `hand_canvas` for MediaPipe hand skeleton drawing.
-- Kept the Three.js globe on `output_canvas`.
-- Added pinch reticle and hand gesture state.
-- Added a voice panel.
-- Added browser speech recognition for microphone input.
-- Added `/api/jarvis` backend route for OpenAI text response and OpenAI TTS audio.
-- Sends a mirrored camera snapshot to the model with each spoken command.
-
-## Voice control
-
-Press `TALK TO JARVIS`, speak, then wait. The browser handles speech-to-text. The Node backend sends text plus the current camera frame to OpenAI, then returns generated speech audio.
-
-## Important
-
-Do not put your OpenAI API key in `app.js`. It belongs only in `.env` on the backend.
+## Files added/changed
+- `qc.js` — detection call + verdict logic + checklist (EDIT THE CHECKLIST).
+- `server.js` — adds `/api/qc-detect` and `/api/qc-inspect`.
+- `qc-client.js` — auto-greet, inspection, checklist UI, QC question routing.
+- `app.js` — routes QC questions to the verdict before the general chat route.
+- `styles.css` — QC panel styles.
+- `.env.example` — all keys/thresholds.

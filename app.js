@@ -738,6 +738,19 @@ function toggleVoiceListening() {
 }
 
 async function handleUserSpeech(text) {
+    // If this is a quality-control question, answer it from the vision verdict
+    // (deterministic) instead of the generic visual-chat route.
+    if (typeof window.qcMaybeHandle === 'function' && window.qcMaybeHandle(text)) {
+        addLogEntry(`USER (QC): ${truncate(text, 55)}`, 'voice');
+        if (!state.voice.manualStop) {
+            dom.voiceToggle.textContent = 'LISTENING';
+            armWakeWindow();
+            setVoiceStatus('FOLLOW-UP READY');
+            safeStartRecognition();
+        }
+        return;
+    }
+
     state.voice.thinking = true;
     dom.voiceToggle.textContent = 'PROCESSING';
     setVoiceStatus('THINKING');
