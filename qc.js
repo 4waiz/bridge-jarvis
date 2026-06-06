@@ -5,8 +5,8 @@
 //   - This module turns facts into a VERDICT against an expected checklist.
 //   - The LLM (in server.js) only PHRASES the verdict. It never decides pass/fail.
 //
-// This keeps quality decisions deterministic and auditable instead of relying
-// on a language model's guess about what it "sees".
+// Group-aware: each checklist item lists several acceptable class names
+// (e.g. a tire in any colour). A detection of ANY listed class counts toward it.
 
 import 'dotenv/config';
 
@@ -14,8 +14,7 @@ import 'dotenv/config';
 // 1. CONFIG — edit these to match YOUR Roboflow model.
 // ---------------------------------------------------------------------------
 
-// From Roboflow: Project -> Versions -> the model id looks like "my-car-qc/3".
-// Set ROBOFLOW_MODEL_ID="my-car-qc/3" in your .env
+// From Roboflow: Project -> Versions -> the model id looks like "car-qc-wheels/1".
 const ROBOFLOW_MODEL_ID = process.env.ROBOFLOW_MODEL_ID || '';
 const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY || '';
 const ROBOFLOW_URL = process.env.ROBOFLOW_URL || 'https://serverless.roboflow.com';
@@ -27,29 +26,46 @@ const LOW_THRESHOLD = Number(process.env.QC_LOW_THRESHOLD || 0.35);
 
 // ---------------------------------------------------------------------------
 // 2. THE CHECKLIST — what a correct car MUST have at this station.
-//    The keys MUST match the class names you label in Roboflow exactly.
-//    label: human-friendly name JARVIS will speak.
-//    min:   how many of this class must be present (e.g. 4 tires).
+//    `classes`: every acceptable class name for this part (colour variants).
+//               These MUST match the Roboflow class names EXACTLY (note the
+//               dataset spells it "tries", not "tires").
+//    `label`:   human-friendly name JARVIS will speak.
+//    `min`:     how many of the part must be present.
+//
+//    WHEELS-ONLY TEST: the camera sees one side = 1 front + 1 rear tire.
+//    Colour doesn't matter, so all colour variants are grouped per part.
 // ---------------------------------------------------------------------------
 
 export const CHECKLIST = [
-    { class: 'tire',            label: 'tires',              min: 4 },
-    { class: 'battery',         label: 'battery',            min: 1 },
-    { class: 'front_bumper',    label: 'front bumper',       min: 1 },
-    { class: 'rear_bumper',     label: 'rear bumper',        min: 1 },
-    { class: 'headlight',       label: 'headlights',         min: 2 },
-    { class: 'side_mirror',     label: 'side mirrors',       min: 2 },
-    { class: 'hood',            label: 'hood',               min: 1 }
-    // ... add every part you trained the model to detect.
+    {
+        label: 'front tire',
+        min: 1,
+        classes: ['fronttries_beige', 'fronttries_black', 'fronttries_white']
+    },
+    {
+        label: 'rear tire',
+        min: 1,
+        classes: ['reartries_beige', 'reartries_black', 'reartries_white']
+    }
+    // --- Phase 2: uncomment to also check body + spoiler ---
+    // { label: 'car body', min: 1, classes: ['carbody_beige', 'carbody_black'] },
+    // { label: 'spoiler',  min: 1, classes: ['spoiler_beige', 'spoiler_black'] }
 ];
 
-// Any class in this list means "a car is in the frame" (used for auto-greeting).
-// Keep it broad — any car part counts as the car being present.
-const CAR_PRESENCE_CLASSES = CHECKLIST.map((c) => c.class);
+// Any class here means "a car is in the frame" (used for auto-greeting).
+// Union of every class across the checklist + the body/spoiler classes,
+// so the greeting fires even before all parts are confirmed.
+const CAR_PRESENCE_CLASSES = [
+    'fronttries_beige', 'fronttries_black', 'fronttries_white',
+    'reartries_beige', 'reartries_black', 'reartries_white',
+    'carbody_beige', 'carbody_black',
+    'spoiler_beige', 'spoiler_black'
+];
 
 // ---------------------------------------------------------------------------
 // 3. Call Roboflow's serverless hosted detection API.
-//    Sends the base64 frame, gets back { predictions: [{class, confidence, x, y, width, height}, ...] }
+//    Sends the base64 frame, gets back
+//    { predictions: [{class, confidence, x, y, width, height}, ...] }
 // ---------------------------------------------------------------------------
 
 export async function detectParts(frameDataUrl) {
@@ -81,14 +97,14 @@ export async function detectParts(frameDataUrl) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Turn raw detections into a structured QC verdict.
+// 4. Turn raw detections into a structured, group-aware QC verdict.
 // ---------------------------------------------------------------------------
 
 export function buildVerdict(predictions) {
-    // Count high-confidence and low-confidence detections per class.
-    const counts = {};    // class -> number seen at >= PRESENCE_THRESHOLD
-    const lowCounts = {};  // class -> number seen between LOW and PRESENCE
-    const bestConf = {};   // class -> best confidence seen
+    // Per-class tallies.
+    const counts = {};     // class -> count at >= PRESENCE_THRESHOLD
+    const lowCounts = {};   // class -> count between LOW and PRESENCE
+    const bestConf = {};    // class -> best confidence seen
 
     for (const p of predictions) {
         const cls = p.class;
@@ -106,25 +122,25 @@ export function buildVerdict(predictions) {
     const uncertain = [];
 
     for (const item of CHECKLIST) {
-        const have = counts[item.class] || 0;
-        const low = lowCounts[item.class] || 0;
+        // Sum across ALL acceptable class variants for this part.
+        let have = 0;
+        let low = 0;
+        let best = 0;
+        for (const cls of item.classes) {
+            have += counts[cls] || 0;
+            low += lowCounts[cls] || 0;
+            best = Math.max(best, bestConf[cls] || 0);
+        }
+
+        const entry = { label: item.label, min: item.min, found: have };
 
         if (have >= item.min) {
-            present.push({ ...item, found: have });
+            present.push(entry);
         } else if (have + low >= item.min) {
-            // Some detections were too weak to trust -> flag for recheck.
-            uncertain.push({
-                ...item,
-                found: have,
-                lowConfidence: low,
-                bestConfidence: Number((bestConf[item.class] || 0).toFixed(2))
-            });
+            // Enough total detections, but some were too weak to trust -> recheck.
+            uncertain.push({ ...entry, lowConfidence: low, bestConfidence: Number(best.toFixed(2)) });
         } else {
-            missing.push({
-                ...item,
-                found: have,
-                bestConfidence: Number((bestConf[item.class] || 0).toFixed(2))
-            });
+            missing.push({ ...entry, bestConfidence: Number(best.toFixed(2)) });
         }
     }
 
@@ -141,9 +157,10 @@ export function isCarPresent(predictions) {
     );
 }
 
-// Compact summary string the LLM can read as ground truth.
+// Compact summary string the LLM reads as ground truth.
 export function verdictToGroundTruth(verdict) {
-    const fmt = (arr) => arr.map((x) => `${x.label}${x.min > 1 ? ` (need ${x.min}, found ${x.found})` : ''}`).join(', ') || 'none';
+    const fmt = (arr) =>
+        arr.map((x) => `${x.label}${x.min > 1 ? ` (need ${x.min}, found ${x.found})` : ''}`).join(', ') || 'none';
     return [
         `INSPECTION VERDICT: ${verdict.pass ? 'PASS' : 'FAIL'}`,
         `Present and correct: ${fmt(verdict.present)}`,
